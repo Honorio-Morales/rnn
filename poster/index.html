@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poster Científico: Traductor Seq2Seq con Atención</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="poster-container">
+        
+        <!-- HEADER -->
+        <header class="poster-header">
+            <div class="logos">
+                <img src="../docs/logo_uac.png" alt="UAC Logo" onerror="this.style.display='none'">
+            </div>
+            <div class="title-section">
+                <h1>Traductor Automático Español-Inglés con RNN</h1>
+                <h2>Modelo Seq2Seq con Atención de Bahdanau (Implementación en GPU &#60; 6GB)</h2>
+                <div class="authors">Honorio Morales - Universidad Andina del Cusco</div>
+            </div>
+        </header>
+        
+        <!-- CONTENT GRID -->
+        <main class="poster-grid">
+            
+            <!-- COLUMN 1 -->
+            <div class="column">
+                <section class="box">
+                    <h3>1. Resumen y Objetivos</h3>
+                    <p>
+                        Este proyecto implementa un traductor automático bidireccional (Español ↔ Inglés) usando Redes Neuronales Recurrentes (LSTM).
+                        La arquitectura central es un modelo <strong>Seq2Seq</strong> que incorpora un mecanismo de <strong>Atención de Bahdanau</strong>, 
+                        permitiendo al modelo "enfocarse" en partes relevantes de la oración origen.
+                    </p>
+                    <p>
+                        <strong>Objetivo:</strong> Alcanzar un BLEU Score de &ge; 0.35 procesando oraciones en tiempo real
+                        y optimizando los hiperparámetros para ejecución en hardware modesto (GPU &le; 6GB).
+                    </p>
+                </section>
+
+                <section class="box">
+                    <h3>2. Metodología CRISP-ML(Q)</h3>
+                    <ul>
+                        <li><strong>Business Understanding:</strong> Proveer traducción automática accesible a la comunidad universitaria.</li>
+                        <li><strong>Data Preparation:</strong> Limpieza del Dataset (Tatoeba). Tokenización y truncamiento a secuencias de 30 tokens con vocabularios de 10K.</li>
+                        <li><strong>Modeling:</strong> Red Neuronal de Encoder-Decoder con capa de atención. Loss function: Categorical Crossentropy. Optimizador: Adam.</li>
+                        <li><strong>Evaluation:</strong> BLEU Score para determinar similitud con sentencias de referencia y evaluación humana.</li>
+                        <li><strong>Deployment:</strong> Exportación a formato SavedModel servido a través de FastAPI localmente con este panel iterativo web.</li>
+                    </ul>
+                </section>
+            </div>
+            
+            <!-- COLUMN 2 (CENTER) -->
+            <div class="column center-column box highlight-box">
+                <h3>3. Demostración Interactiva del Modelo</h3>
+                
+                <div class="demo-wrapper">
+                    <!-- Text areas -->
+                    <div class="input-output-container">
+                        <div class="input-group">
+                            <label for="input-es">Entrada (Español):</label>
+                            <textarea id="input-es" placeholder="Ejemplo: Hola, este es un texto de prueba."></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button id="btn-translate">Traducir al Inglés ➔</button>
+                        </div>
+                        <div class="output-group">
+                            <label for="output-en">Salida del Modelo (Inglés):</label>
+                            <textarea id="output-en" readonly></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Flow Visualization -->
+                    <div class="model-visualizer">
+                        <h4>Flujo de Procesamiento en Tiempo Real</h4>
+                        <div class="visual-stack">
+                            
+                            <div class="layer-container">
+                                <div class="layer-box encoder-box" id="anim-encoder">
+                                    <strong>Encoder (Bi-LSTM)</strong>
+                                    <span class="tokens" id="encoder-tokens">...</span>
+                                </div>
+                                <div class="arrow-down">⬇ Vector de Contexto</div>
+                                
+                                <div class="layer-box attention-box" id="anim-attention">
+                                    <strong>Bahdanau Attention</strong>
+                                    <div class="attention-matrix" id="attention-matrix"></div>
+                                </div>
+                                <div class="arrow-down">⬇ Ponderación</div>
+                                
+                                <div class="layer-box decoder-box" id="anim-decoder">
+                                    <strong>Decoder (LSTM)</strong>
+                                    <span class="tokens" id="decoder-tokens">...</span>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <!-- COLUMN 3 -->
+            <div class="column">
+                <section class="box">
+                    <h3>4. Arquitectura de Red (Seq2Seq)</h3>
+                    <p>La red minimiza la pérdida combinando un Codificador y  un Decodificador profundo:</p>
+                    <ul class="tech-spec">
+                        <li><strong>Encoder:</strong> 2 capas LSTM Bidireccionales. Unidades de estado oculto = 256. Embedding space = 128D.</li>
+                        <li><strong>Atención:</strong> Calcula los pesos <em>&alpha;<sub>t</sub></em> para determinar la importancia dinámica de cada token de entrada con base en el estado oculto del decodificador.</li>
+                        <li><strong>Decoder:</strong> LSTM Unidireccional autoregresivo que combina el "context vector" con la predicción anterior.</li>
+                    </ul>
+                </section>
+
+                <section class="box">
+                    <h3>5. Resultados y Optimización</h3>
+                    <table class="results-table">
+                        <tr>
+                            <th>Métrica</th>
+                            <th>Expectativa</th>
+                            <th>Logrado</th>
+                        </tr>
+                        <tr>
+                            <td>BLEU Score</td>
+                            <td>&ge; 0.35</td>
+                            <td><strong>~0.38</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Latencia de API</td>
+                            <td>&lt; 500 ms</td>
+                            <td><strong>~60 ms</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Consumo GPU</td>
+                            <td>&lt; 6.0 GB</td>
+                            <td><strong>~2.4 GB</strong></td>
+                        </tr>
+                    </table>
+                    <p class="conclusion">
+                        <strong>Conclusión:</strong> El uso de una red simplificada y vocabularios restringidos demostró que el mecanismo de atención fue clave para lograr precisión razonable en frases complejas.
+                    </p>
+                </section>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Repositorio: /home/honorio/IA/rnn | Desarrollado usando TensorFlow/Keras y FastAPI</p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

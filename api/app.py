@@ -4,6 +4,7 @@ Endpoint: POST /translate
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import tensorflow as tf
 import json
@@ -30,6 +31,14 @@ app = FastAPI(
     version="1.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Rutas
 MODEL_PATH = Path(__file__).parent.parent / 'models' / 'traductor_v1'
 VOCAB_ES_PATH = Path(__file__).parent.parent / 'data' / 'processed' / 'vocab_spanish.json'
@@ -37,14 +46,14 @@ VOCAB_EN_PATH = Path(__file__).parent.parent / 'data' / 'processed' / 'vocab_eng
 
 # Cargar modelo y vocabularios
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
+    model = tf.saved_model.load(str(MODEL_PATH)).signatures['serving_default']
     with open(VOCAB_ES_PATH) as f:
         vocab_spanish = json.load(f)
     with open(VOCAB_EN_PATH) as f:
         vocab_english = json.load(f)
     MODEL_LOADED = True
 except Exception as e:
-    print(f"⚠️ No se pudo cargar modelo: {e}")
+    print(f"No se pudo cargar modelo: {e}")
     MODEL_LOADED = False
 
 @app.get("/")
@@ -91,11 +100,12 @@ def translate(request: TranslationRequest):
         text_clean = request.text.lower().strip()
         tokens = text_clean.split()
         
-        # Convertir a índices
-        indices = []
+        # Convertir a índices (añadiendo START y END)
+        indices = [vocab_spanish.get('<START>', 2)]
         for token in tokens:
             idx = vocab_spanish.get(token, vocab_spanish.get('<UNK>', 1))
             indices.append(idx)
+        indices.append(vocab_spanish.get('<END>', 3))
         
         # Padding/truncamiento
         max_len = 30
@@ -104,18 +114,34 @@ def translate(request: TranslationRequest):
         else:
             indices = indices[:max_len]
         
-        # Inferencia
-        input_seq = np.array([indices])
-        predictions = model.predict(input_seq, verbose=0)
-        predicted_indices = np.argmax(predictions[0], axis=-1)
+        input_seq = np.array([indices], dtype=np.float32)
         
-        # Decodificar
+        # Inferencia autoregresiva
+        decoder_input = np.zeros((1, 29), dtype=np.float32)
+        START_TOKEN = vocab_english.get('<START>', 2)
+        END_TOKEN = vocab_english.get('<END>', 3)
+        PAD_TOKEN = vocab_english.get('<PAD>', 0)
+        
+        decoder_input[0, 0] = START_TOKEN
         idx2english = {v: k for k, v in vocab_english.items()}
+        
         translated_tokens = []
-        for idx in predicted_indices:
-            token = idx2english.get(int(idx), '<UNK>')
-            if token not in ['<PAD>', '<START>', '<END>', '<UNK>']:
-                translated_tokens.append(token)
+        for i in range(28):
+            output = model(args_0=tf.constant(input_seq), args_0_1=tf.constant(decoder_input))
+            predictions = list(output.values())[0].numpy()
+            
+            # Obtener la predicción para el paso i 
+            pred_idx = np.argmax(predictions[0, i, :])
+            
+            if pred_idx == END_TOKEN:
+                break
+                
+            decoder_input[0, i + 1] = pred_idx
+            
+            if pred_idx != PAD_TOKEN:
+                token_str = idx2english.get(int(pred_idx), '<UNK>')
+                if token_str != '<UNK>':
+                    translated_tokens.append(token_str)
         
         translation = ' '.join(translated_tokens) if translated_tokens else "No se pudo traducir"
         
