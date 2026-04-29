@@ -1,0 +1,52 @@
+# Archivos del sistema
+.DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Entornos virtuales
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# Datos y modelos (no subir al repo)
+data/processed/
+data/raw/*.csv
+data/splits/
+models/
+*.h5
+*.pkl
+*.joblib
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Logs
+*.log
+logs/
+
+# Outputs
+reports/
+output/
+
+# Cache
+.cache/
+*.cache
+
+# Dependencias
+dist/
+build/
+*.egg-info/

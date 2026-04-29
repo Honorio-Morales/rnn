@@ -1,0 +1,437 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf-8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+
+% Configuración de código
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    backgroundcolor=\color{gray!10}
+}
+
+% Encabezados
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Traductor Automático RNN}
+\lhead{CRISP-ML(Q)}
+\cfoot{\thepage}
+
+\title{Implementación de un Traductor Automático\\Español-Inglés con RNN bajo CRISP-ML(Q)}
+\author{Universidad Andina del Cusco (UAC)}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{1. Business and Data Understanding}
+%=============================================================================
+
+\subsection{1.1 Contexto y Objetivos}
+Se requiere desarrollar un prototipo funcional de traductor automático capaz de traducir frases del español al inglés y viceversa. El sistema será utilizado por la comunidad académica de la UAC para facilitar procesos de traducción rápida en entornos educativos.
+
+\subsection{1.2 Métricas de Éxito}
+\begin{itemize}
+    \item \textbf{BLEU Score}: $\geq 0.35$ (baseline aceptable para traducción general)
+    \item \textbf{Latencia}: $< 500$ ms por traducción (20 palabras)
+    \item \textbf{Cobertura de Vocabulario}: Manejo de 80\% del vocabulario común
+    \item \textbf{Disponibilidad}: API activa 99\% del tiempo
+\end{itemize}
+
+\subsection{1.3 Análisis de Datos}
+\label{sec:data_analysis}
+
+\subsubsection{Corpus Utilizado}
+\begin{itemize}
+    \item \textbf{Fuente}: Tatoeba Project (dataset público de traducción)
+    \item \textbf{Pares de frases}: 50,000 (español-inglés)
+    \item \textbf{Lenguaje}: Frases cortas a medianas (máximo 30 tokens)
+    \item \textbf{Dominio}: General (conversacional)
+\end{itemize}
+
+\subsubsection{Estadísticas del Dataset}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lrr}
+        \toprule
+        \textbf{Métrica} & \textbf{Español} & \textbf{Inglés} \\
+        \midrule
+        Palabras únicas & 8,500 & 7,200 \\
+        Longitud promedio (tokens) & 8.5 & 8.2 \\
+        Longitud máxima & 45 & 42 \\
+        Longitud mínima & 1 & 1 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Estadísticas del corpus paralelo}
+\end{table}
+
+\subsubsection{Desafíos Identificados}
+\begin{enumerate}
+    \item Falta de ejemplos en vocabulario especializado (OOV - Out Of Vocabulary)
+    \item Ambigüedad en frases largas (pérdida de contexto)
+    \item Desbalance en longitudes de frases
+\end{enumerate}
+
+%=============================================================================
+\section{2. Data Preparation}
+%=============================================================================
+
+\subsection{2.1 Etapas de Preprocesamiento}
+
+\subsubsection{Limpieza de Texto}
+\begin{lstlisting}
+# Procedimiento:
+1. Conversión a minúsculas
+2. Eliminación de puntuación extra
+3. Remocición de espacios duplicados
+4. Filtrado de líneas vacías
+\end{lstlisting}
+
+\subsubsection{Tokenización}
+\begin{itemize}
+    \item \textbf{Método}: Tokenización por espacios + diccionario de vocabulario
+    \item \textbf{Vocabulario}: Top 10,000 palabras más frecuentes
+    \item \textbf{Token especial OOV}: \texttt{<UNK>}
+    \item \textbf{Tokens adicionales}: \texttt{<PAD>}, \texttt{<START>}, \texttt{<END>}
+\end{itemize}
+
+\subsubsection{Vectorización (Embeddings)}
+\begin{itemize}
+    \item \textbf{Tipo}: Word Embeddings entrenados desde cero
+    \item \textbf{Dimensión}: 128 (optimizado para GPU 6GB)
+    \item \textbf{Arquitectura}: Embedding layer denso
+\end{itemize}
+
+\subsubsection{Padding y Truncamiento}
+\begin{itemize}
+    \item Todas las secuencias se normalizan a máximo 30 tokens
+    \item Padding con token \texttt{<PAD>} al final
+    \item Secuencias más largas se truncan
+\end{itemize}
+
+\subsection{2.2 División del Dataset}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lr}
+        \toprule
+        \textbf{Conjunto} & \textbf{Porcentaje} \\
+        \midrule
+        Entrenamiento & 80\% (40,000) \\
+        Validación & 10\% (5,000) \\
+        Prueba & 10\% (5,000) \\
+        \bottomrule
+    \end{tabular}
+    \caption{División del dataset}
+\end{table}
+
+\subsection{2.3 Control de Calidad}
+\begin{enumerate}
+    \item Verificación de no-vacíos en pares de traducción
+    \item Detección de duplicados
+    \item Análisis de distribución de longitudes
+    \item Validación de tokens especiales
+\end{enumerate}
+
+%=============================================================================
+\section{3. Modeling - Arquitectura Seq2Seq}
+%=============================================================================
+
+\subsection{3.1 Arquitectura General}
+
+La red implementa el patrón \textbf{Encoder-Decoder} con el siguiente esquema:
+
+\begin{equation}
+\text{traducción} = \text{Decoder}(\text{Encoder}(\text{frase\_origen}))
+\end{equation}
+
+\subsection{3.2 Componente Encoder}
+
+\subsubsection{Estructura}
+\begin{itemize}
+    \item \textbf{Tipo de celda}: LSTM bidireccional
+    \item \textbf{Unidades}: 256 (dimensión del estado oculto)
+    \item \textbf{Capas}: 2 (para capturar patrones complejos)
+    \item \textbf{Dropout}: 0.3 (regularización)
+\end{itemize}
+
+\subsubsection{Funcionamiento}
+El encoder procesa la secuencia de entrada completa y produce:
+\begin{itemize}
+    \item \textbf{Salida}: Secuencia de vectores contextuales $(h_1, h_2, \ldots, h_n)$
+    \item \textbf{Estado final}: $(h_n^{\text{fwd}}, h_n^{\text{bwd}})$ concatenados
+\end{itemize}
+
+\subsection{3.3 Componente Decoder}
+
+\subsubsection{Estructura}
+\begin{itemize}
+    \item \textbf{Tipo de celda}: LSTM unidireccional
+    \item \textbf{Unidades}: 256
+    \item \textbf{Capas}: 2
+    \item \textbf{Dropout}: 0.3
+\end{itemize}
+
+\subsubsection{Mecanismo de Atención}
+Se implementa atención de Bahdanau para frases largas:
+
+\begin{equation}
+e_t = v^T \tanh(W[s_{t-1}; h_i])
+\end{equation}
+
+\begin{equation}
+\alpha_t = \text{softmax}(e_t)
+\end{equation}
+
+\begin{equation}
+c_t = \sum_i \alpha_{t,i} h_i
+\end{equation}
+
+\subsubsection{Funcionamiento}
+\begin{enumerate}
+    \item Recibe estado inicial del encoder
+    \item En cada paso, atiende a las salidas del encoder
+    \item Genera un token a la vez
+    \item Detiene al producir token \texttt{<END>}
+\end{enumerate}
+
+\subsection{3.4 Parámetros de Entrenamiento}
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lr}
+        \toprule
+        \textbf{Parámetro} & \textbf{Valor} \\
+        \midrule
+        Optimizer & Adam (lr=0.001) \\
+        Loss Function & Categorical Crossentropy \\
+        Batch Size & 32 \\
+        Epochs & 50 \\
+        Early Stopping & Paciencia: 5 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Configuración de entrenamiento}
+\end{table}
+
+%=============================================================================
+\section{4. Evaluation}
+%=============================================================================
+
+\subsection{4.1 Métrica Principal: BLEU Score}
+
+El BLEU (BiLingual Evaluation Understudy) mide la similitud entre la traducción generada y referencias humanas:
+
+\begin{equation}
+\text{BLEU} = BP \cdot \exp\left(\sum_{n=1}^{N} w_n \log p_n\right)
+\end{equation}
+
+Donde:
+\begin{itemize}
+    \item $BP$ = Brevity Penalty
+    \item $p_n$ = precisión de n-gramas
+    \item $w_n$ = pesos (típicamente 0.25 para cada n-grama)
+\end{itemize}
+
+\textbf{Interpretación}:
+\begin{itemize}
+    \item BLEU $< 0.15$: Traducción pobre
+    \item BLEU $0.15-0.35$: Aceptable (nuestro objetivo)
+    \item BLEU $0.35-0.50$: Bueno
+    \item BLEU $> 0.50$: Excelente
+\end{itemize}
+
+\subsection{4.2 Otras Métricas}
+
+\subsubsection{Precisión de Secuencia Exacta}
+Porcentaje de frases donde la traducción es exactamente igual a la referencia.
+
+\subsubsection{Análisis de Cobertura}
+\begin{itemize}
+    \item Palabras no encontradas en vocabulario (OOV)
+    \item Palabras mal traducidas (por frecuencia)
+\end{itemize}
+
+\subsection{4.3 Análisis de Errores}
+
+Se clasifican errores en categorías:
+\begin{enumerate}
+    \item \textbf{OOV}: Token desconocido
+    \item \textbf{Contexto}: Pérdida de significado por contexto
+    \item \textbf{Orden}: Palabras en orden incorrecto
+    \item \textbf{Gramatical}: Violación de reglas gramaticales
+\end{enumerate}
+
+\subsection{4.4 Resultados Esperados}
+
+Se espera alcanzar:
+\begin{itemize}
+    \item BLEU Score: 0.35-0.42
+    \item Tiempo de inferencia: 100-300 ms por frase
+    \item Cobertura vocabulario: > 85\%
+\end{itemize}
+
+%=============================================================================
+\section{5. Deployment}
+%=============================================================================
+
+\subsection{5.1 Exportación del Modelo}
+
+El modelo entrenado se exporta a formatos ligeros:
+\begin{itemize}
+    \item \textbf{Formato primario}: TensorFlow SavedModel
+    \item \textbf{Formato alternativo}: ONNX (compatibilidad multiplataforma)
+    \item \textbf{Tamaño}: $\approx$ 150-200 MB
+\end{itemize}
+
+\subsection{5.2 API REST (FastAPI)}
+
+\subsubsection{Endpoint: POST /translate}
+\begin{lstlisting}
+Request:
+{
+  "text": "Hola, ¿cómo estás?",
+  "source_lang": "es",
+  "target_lang": "en"
+}
+
+Response:
+{
+  "translation": "Hello, how are you?",
+  "confidence": 0.42,
+  "processing_time_ms": 125,
+  "timestamp": "2024-04-29T10:30:00Z"
+}
+\end{lstlisting}
+
+\subsubsection{Validaciones}
+\begin{itemize}
+    \item Longitud máxima: 200 caracteres
+    \item Formato de lenguaje: ISO 639-1 (es, en)
+    \item Rate limiting: 100 req/min por IP
+\end{itemize}
+
+\subsection{5.3 Containerización}
+
+Dockerization para despliegue en cualquier servidor:
+\begin{lstlisting}
+docker build -t traductor-rnn .
+docker run -p 8000:8000 traductor-rnn
+\end{lstlisting}
+
+%=============================================================================
+\section{6. Monitoring and Maintenance}
+%=============================================================================
+
+\subsection{6.1 Detección de Deriva (Model Drift)}
+
+Se monitorean dos tipos de deriva:
+
+\subsubsection{Data Drift}
+¿Cambian las características del vocabulario?
+\begin{itemize}
+    \item Monitoreo de palabras nuevas frecuentes
+    \item Detección de cambios en distribución de longitudes
+    \item Alerta si $> 5\%$ de palabras son OOV
+\end{itemize}
+
+\subsubsection{Performance Drift}
+¿Degradación del BLEU Score en tiempo real?
+\begin{itemize}
+    \item Validación continua en muestra de prueba
+    \item Alerta si BLEU desciende $> 10\%$
+    \item Logging de resultados por hora
+\end{itemize}
+
+\subsection{6.2 Feedback Loop y Reentrenamiento}
+
+\subsubsection{Botón de Corrección}
+En la interfaz, usuarios pueden reportar traducciones incorrectas:
+\begin{lstlisting}
+POST /feedback
+{
+  "original": "Hola",
+  "generated": "Hi",
+  "user_correction": "Hello",
+  "confidence": 0.42
+}
+\end{lstlisting}
+
+\subsubsection{Plan de Reentrenamiento}
+\begin{enumerate}
+    \item Recolección de feedback cada semana
+    \item Si se acumulan $> 1000$ correcciones: reentrenar modelo
+    \item Validar nuevo modelo vs. anterior antes de deploying
+    \item Versioning automático (v1.0, v1.1, etc.)
+\end{enumerate}
+
+\subsection{6.3 Logs y Alertas}
+
+\subsubsection{Métricas Registradas}
+\begin{itemize}
+    \item Latencia de traducción
+    \item Errores 4xx/5xx
+    \item Palabras OOV por traducción
+    \item BLEU Score (validación periódica)
+\end{itemize}
+
+\subsubsection{Alertas Automáticas}
+\begin{itemize}
+    \item Latencia $> 500$ ms
+    \item Error rate $> 5\%$
+    \item Memoria utilizada $> 80\%$
+\end{itemize}
+
+%=============================================================================
+\section{7. Conclusiones y Líneas Futuras}
+%=============================================================================
+
+\subsection{7.1 Logros}
+Este proyecto implementa un traductor automático siguiendo rigurosamente la metodología CRISP-ML(Q), garantizando control de calidad en todas las fases.
+
+\subsection{7.2 Limitaciones Actuales}
+\begin{itemize}
+    \item Modelo especializado solo en español-inglés
+    \item Performance limitado en jerga especializada
+    \item Requiere reentrenamiento periódico
+\end{itemize}
+
+\subsection{7.3 Trabajo Futuro}
+\begin{enumerate}
+    \item Incorporar idiomas adicionales (Quechua, Francés)
+    \item Implementar modelo multilingüe (mBART, mT5)
+    \item Optimización con Knowledge Distillation
+    \item Interfaz web interactiva
+    \item Análisis de sentimientos en traducción
+\end{enumerate}
+
+%=============================================================================
+\section{Referencias}
+%=============================================================================
+
+\begin{enumerate}
+    \item Vaswani, A. et al. (2017). \textit{Attention is All You Need}. NeurIPS.
+    \item Papineni, K. et al. (2002). \textit{BLEU: a Method for Automatic Evaluation of Machine Translation}. ACL.
+    \item Chollet, F. (2018). \textit{Deep Learning with Python}. Manning.
+    \item Tatoeba Project: \url{https://tatoeba.org/}
+    \item CRISP-ML(Q): \url{https://crisp-ml.github.io/}
+\end{enumerate}
+
+\end{document}
