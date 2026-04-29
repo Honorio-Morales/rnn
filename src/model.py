@@ -180,6 +180,8 @@ class Seq2SeqModel(Model):
                               hidden_units, num_layers, dropout)
         self.decoder = Decoder(target_vocab_size, embedding_dim,
                               hidden_units, num_layers, dropout)
+        self.enc_to_dec_h = layers.Dense(hidden_units, activation='tanh')
+        self.enc_to_dec_c = layers.Dense(hidden_units, activation='tanh')
         self.target_vocab_size = target_vocab_size
         self.START_TOKEN_IDX = 2  # Token especial <START>
         self.END_TOKEN_IDX = 3    # Token especial <END>
@@ -198,6 +200,9 @@ class Seq2SeqModel(Model):
         
         # Encode
         encoder_outputs, state_h, state_c = self.encoder(encoder_input, training=training)
+
+        state_h = self.enc_to_dec_h(state_h)
+        state_c = self.enc_to_dec_c(state_c)
         
         # Decode
         all_outputs = []
@@ -233,6 +238,9 @@ class Seq2SeqModel(Model):
         """
         # Encode
         encoder_outputs, state_h, state_c = self.encoder(source_sequence, training=False)
+
+        state_h = self.enc_to_dec_h(state_h)
+        state_c = self.enc_to_dec_c(state_c)
         
         # Inicializar decoder con START token
         decoder_input = np.array([[self.START_TOKEN_IDX]])
@@ -289,14 +297,15 @@ def create_seq2seq_model(source_vocab_size: int, target_vocab_size: int,
         embedding_dim=128,
         hidden_units=256,
         num_layers=2,
-        dropout=0.3
+        dropout=0.0
     )
     
     # Compilar modelo
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=0.001),
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
+        loss='sparse_categorical_crossentropy',
+        metrics=['sparse_categorical_accuracy'],
+        run_eagerly=True
     )
     
     return model
