@@ -19,7 +19,12 @@ class TranslationInference:
             source_vocab_path: Ruta al vocabulario de origen
             target_vocab_path: Ruta al vocabulario de destino
         """
-        self.model = tf.keras.models.load_model(model_path)
+        # Cargar modelo con keras 3 / saved_model
+        # Si termina en .keras le quitamos porque asumimos que es el exportado (SavedModel folder)
+        if model_path.endswith('.keras'):
+            model_path = model_path.replace('.keras', '')
+            
+        self.model = tf.saved_model.load(model_path).signatures['serving_default']
         
         # Cargar vocabularios
         with open(source_vocab_path, 'r') as f:
@@ -37,87 +42,61 @@ class TranslationInference:
         self.PAD_TOKEN_IDX = self.target_vocab.get('<PAD>', 0)
     
     def preprocess_input(self, text: str, max_length: int = 30) -> np.ndarray:
-        """Preprocesa texto de entrada.
-        
-        Args:
-            text: Texto a traducir
-            max_length: Longitud máxima
-            
-        Returns:
-            Array de índices con padding
-        """
-        # Limpieza básica
+        """Preprocesa texto de entrada."""
         text = text.lower().strip()
         tokens = text.split()
         
-        # Convertir a índices
         indices = [self.START_TOKEN_IDX]
         for token in tokens:
             idx = self.source_vocab.get(token, self.source_vocab.get('<UNK>', 1))
             indices.append(idx)
         indices.append(self.source_vocab.get('<END>', 3))
         
-        # Truncar si es muy largo
         if len(indices) > max_length:
             indices = indices[:max_length]
         
-        # Padding
         pad_length = max_length - len(indices)
         indices = indices + [self.PAD_TOKEN_IDX] * pad_length
         
-        return np.array([indices])
+        return np.array([indices], dtype=np.float32)
     
     def translate(self, text: str, max_length: int = 30, 
                  temperature: float = 1.0) -> Tuple[str, List[float]]:
-        """Traduce texto.
-        
-        Args:
-            text: Texto a traducir
-            max_length: Longitud máxima de traducción
-            temperature: Temperatura para sampling
-            
-        Returns:
-            (texto_traducido, confianza)
-        """
-        # Preprocesar
+        """Traduce texto."""
         source_seq = self.preprocess_input(text, max_length)
         
-        # Inferencia
         try:
-            translation_indices, attention_weights = self.model.generate_translation(
-                source_seq, max_length=max_length, temperature=temperature
-            )
+            decoder_input = np.zeros((1, 29), dtype=np.float32)
+            decoder_input[0, 0] = self.START_TOKEN_IDX
+            
+            translated_tokens = []
+            confidences = []
+            for i in range(28):
+                output = self.model(args_0=tf.constant(source_seq), args_0_1=tf.constant(decoder_input))
+                predictions = list(output.values())[0].numpy()
+                
+                pred_probs = predictions[0, i, :]
+                pred_idx = np.argmax(pred_probs)
+                
+                if pred_idx == self.END_TOKEN_IDX:
+                    break
+                    
+                decoder_input[0, i + 1] = pred_idx
+                
+                if pred_idx != self.PAD_TOKEN_IDX:
+                    token_str = self.idx2target.get(int(pred_idx), '<UNK>')
+                    if token_str != '<UNK>':
+                        translated_tokens.append(token_str)
+            
+            translation = ' '.join(translated_tokens) if translated_tokens else "No se pudo traducir"
+            return translation, confidences
+            
         except Exception as e:
             return f"Error en inferencia: {str(e)}", []
-        
-        # Decodificar
-        translated_tokens = []
-        confidences = []
-        
-        for idx in translation_indices:
-            if idx == self.END_TOKEN_IDX:
-                break
-            if idx == self.PAD_TOKEN_IDX:
-                continue
-            
-            token = self.idx2target.get(int(idx), '<UNK>')
-            if token != '<UNK>':
-                translated_tokens.append(token)
-        
-        translation = ' '.join(translated_tokens)
-        return translation, confidences
     
     def batch_translate(self, texts: List[str], max_length: int = 30) \
             -> List[Tuple[str, List[float]]]:
-        """Traduce lote de textos.
-        
-        Args:
-            texts: Lista de textos
-            max_length: Longitud máxima
-            
-        Returns:
-            Lista de (traducción, confianza)
-        """
+        """Traduce lote de textos."""
         results = []
         for text in texts:
             translation, conf = self.translate(text, max_length)

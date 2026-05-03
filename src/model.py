@@ -305,7 +305,7 @@ def create_seq2seq_model(source_vocab_size: int, target_vocab_size: int,
         optimizer=keras.optimizers.Adam(learning_rate=0.001),
         loss='sparse_categorical_crossentropy',
         metrics=['sparse_categorical_accuracy'],
-        run_eagerly=True
+        run_eagerly=False
     )
     
     return model
